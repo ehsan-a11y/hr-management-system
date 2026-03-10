@@ -583,3 +583,543 @@ def generate_payroll(month: int, year: int):
         db.commit()
         return {"message": f"Payroll generated: {created} created, {skipped} skipped"}
     finally: db.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  NEW BAYZAT FEATURES
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ─── New Models ──────────────────────────────────────────────────────────────
+
+class PerformanceReview(Base):
+    __tablename__ = "performance_reviews"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    period = Column(String(50), nullable=False)        # "Q1 2025", "Annual 2025"
+    review_date = Column(Date, nullable=False)
+    rating = Column(Float, nullable=False)             # 1.0 – 5.0
+    goals = Column(Text, nullable=True)
+    achievements = Column(Text, nullable=True)
+    areas_improvement = Column(Text, nullable=True)
+    reviewer_notes = Column(Text, nullable=True)
+    status = Column(String(20), default="pending")     # pending, completed
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class EmployeeDocument(Base):
+    __tablename__ = "documents"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    doc_type = Column(String(50), nullable=False)      # passport, visa, contract, certificate
+    name = Column(String(200), nullable=False)
+    file_data = Column(Text, nullable=True)            # base64 data-URL
+    expiry_date = Column(Date, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class LeaveBalance(Base):
+    __tablename__ = "leave_balances"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    year = Column(Integer, nullable=False)
+    annual_total = Column(Float, default=21.0)
+    annual_used = Column(Float, default=0.0)
+    sick_total = Column(Float, default=10.0)
+    sick_used = Column(Float, default=0.0)
+    emergency_total = Column(Float, default=5.0)
+    emergency_used = Column(Float, default=0.0)
+
+
+class Benefit(Base):
+    __tablename__ = "benefits"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    benefit_type = Column(String(100), nullable=False)
+    provider = Column(String(100), nullable=True)
+    coverage_details = Column(Text, nullable=True)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=True)
+    cost_monthly = Column(Float, default=0.0)
+    status = Column(String(20), default="active")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class Announcement(Base):
+    __tablename__ = "announcements"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    priority = Column(String(20), default="normal")   # low, normal, high, urgent
+    category = Column(String(50), default="general")  # general, policy, event, alert
+    author = Column(String(100), default="HR Team")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# Create new tables
+Base.metadata.create_all(bind=engine)
+
+# ─── New Schemas ─────────────────────────────────────────────────────────────
+
+class ReviewOut(BaseModel):
+    id: int; employee_id: int; period: str; review_date: date; rating: float
+    goals: Optional[str] = None; achievements: Optional[str] = None
+    areas_improvement: Optional[str] = None; reviewer_notes: Optional[str] = None
+    status: str; created_at: Optional[datetime] = None
+    class Config: from_attributes = True
+
+class ReviewCreate(BaseModel):
+    employee_id: int; period: str; review_date: date; rating: float
+    goals: Optional[str] = None; achievements: Optional[str] = None
+    areas_improvement: Optional[str] = None; reviewer_notes: Optional[str] = None
+    status: Optional[str] = "pending"
+
+class ReviewUpdate(BaseModel):
+    rating: Optional[float] = None; goals: Optional[str] = None
+    achievements: Optional[str] = None; areas_improvement: Optional[str] = None
+    reviewer_notes: Optional[str] = None; status: Optional[str] = None
+
+class DocOut(BaseModel):
+    id: int; employee_id: int; doc_type: str; name: str
+    file_data: Optional[str] = None; expiry_date: Optional[date] = None
+    notes: Optional[str] = None; created_at: Optional[datetime] = None
+    class Config: from_attributes = True
+
+class DocCreate(BaseModel):
+    employee_id: int; doc_type: str; name: str
+    file_data: Optional[str] = None; expiry_date: Optional[date] = None; notes: Optional[str] = None
+
+class DocUpdate(BaseModel):
+    doc_type: Optional[str] = None; name: Optional[str] = None
+    file_data: Optional[str] = None; expiry_date: Optional[date] = None; notes: Optional[str] = None
+
+class BalanceOut(BaseModel):
+    id: int; employee_id: int; year: int
+    annual_total: float; annual_used: float
+    sick_total: float; sick_used: float
+    emergency_total: float; emergency_used: float
+    class Config: from_attributes = True
+
+class BalanceCreate(BaseModel):
+    employee_id: int; year: int
+    annual_total: float = 21.0; annual_used: float = 0.0
+    sick_total: float = 10.0; sick_used: float = 0.0
+    emergency_total: float = 5.0; emergency_used: float = 0.0
+
+class BalanceUpdate(BaseModel):
+    annual_total: Optional[float] = None; annual_used: Optional[float] = None
+    sick_total: Optional[float] = None; sick_used: Optional[float] = None
+    emergency_total: Optional[float] = None; emergency_used: Optional[float] = None
+
+class BenefitOut(BaseModel):
+    id: int; employee_id: int; benefit_type: str; provider: Optional[str] = None
+    coverage_details: Optional[str] = None; start_date: date; end_date: Optional[date] = None
+    cost_monthly: float; status: str; created_at: Optional[datetime] = None
+    class Config: from_attributes = True
+
+class BenefitCreate(BaseModel):
+    employee_id: int; benefit_type: str; provider: Optional[str] = None
+    coverage_details: Optional[str] = None; start_date: date; end_date: Optional[date] = None
+    cost_monthly: float = 0.0; status: str = "active"
+
+class BenefitUpdate(BaseModel):
+    benefit_type: Optional[str] = None; provider: Optional[str] = None
+    coverage_details: Optional[str] = None; end_date: Optional[date] = None
+    cost_monthly: Optional[float] = None; status: Optional[str] = None
+
+class AnnounceOut(BaseModel):
+    id: int; title: str; content: str; priority: str; category: str
+    author: str; created_at: Optional[datetime] = None
+    class Config: from_attributes = True
+
+class AnnounceCreate(BaseModel):
+    title: str; content: str; priority: str = "normal"
+    category: str = "general"; author: str = "HR Team"
+
+class AnnounceUpdate(BaseModel):
+    title: Optional[str] = None; content: Optional[str] = None
+    priority: Optional[str] = None; category: Optional[str] = None
+
+
+# ─── New Routes ──────────────────────────────────────────────────────────────
+
+# Analytics
+@app.get("/api/analytics/")
+def get_analytics():
+    db = SessionLocal()
+    try:
+        today = date.today()
+        # Employees by department
+        depts = db.query(Department).all()
+        by_dept = []
+        for d in depts:
+            count = db.query(Employee).filter(Employee.department_id == d.id, Employee.status == "active").count()
+            by_dept.append({"name": d.name, "count": count})
+
+        # Monthly attendance last 6 months
+        from datetime import timedelta
+        monthly_att = []
+        for i in range(5, -1, -1):
+            m = (today.month - i - 1) % 12 + 1
+            y = today.year - ((today.month - i - 1) // 12)
+            present = db.query(Attendance).filter(
+                func.strftime('%Y', Attendance.date) == str(y),
+                func.strftime('%m', Attendance.date) == f"{m:02d}",
+                Attendance.status == "present"
+            ).count()
+            absent = db.query(Attendance).filter(
+                func.strftime('%Y', Attendance.date) == str(y),
+                func.strftime('%m', Attendance.date) == f"{m:02d}",
+                Attendance.status == "absent"
+            ).count()
+            monthly_att.append({
+                "month": f"{y}-{m:02d}",
+                "label": date(y, m, 1).strftime("%b %Y"),
+                "present": present, "absent": absent
+            })
+
+        # Payroll last 6 months
+        monthly_pay = []
+        for i in range(5, -1, -1):
+            m = (today.month - i - 1) % 12 + 1
+            y = today.year - ((today.month - i - 1) // 12)
+            recs = db.query(Payroll).filter(Payroll.month == m, Payroll.year == y).all()
+            monthly_pay.append({
+                "label": date(y, m, 1).strftime("%b %Y"),
+                "total": round(sum(r.net_salary for r in recs), 2),
+                "count": len(recs)
+            })
+
+        # Leave type distribution
+        leave_types = {}
+        for l in db.query(Leave).all():
+            leave_types[l.leave_type] = leave_types.get(l.leave_type, 0) + 1
+
+        # Headcount by status
+        statuses = {}
+        for e in db.query(Employee).all():
+            statuses[e.status] = statuses.get(e.status, 0) + 1
+
+        # Avg rating from performance reviews
+        reviews = db.query(PerformanceReview).all()
+        avg_rating = round(sum(r.rating for r in reviews) / len(reviews), 2) if reviews else 0
+
+        return {
+            "employees_by_department": by_dept,
+            "monthly_attendance": monthly_att,
+            "monthly_payroll": monthly_pay,
+            "leave_distribution": [{"type": k, "count": v} for k, v in leave_types.items()],
+            "headcount_by_status": [{"status": k, "count": v} for k, v in statuses.items()],
+            "average_performance_rating": avg_rating,
+            "total_reviews": len(reviews),
+        }
+    finally:
+        db.close()
+
+
+# Org Chart
+@app.get("/api/orgchart/")
+def get_orgchart():
+    db = SessionLocal()
+    try:
+        depts = db.query(Department).all()
+        result = []
+        for d in depts:
+            emps = db.query(Employee).filter(Employee.department_id == d.id, Employee.status == "active").all()
+            result.append({
+                "id": d.id, "name": d.name, "description": d.description,
+                "manager_id": d.manager_id,
+                "employees": [
+                    {"id": e.id, "name": f"{e.first_name} {e.last_name}",
+                     "position": e.position, "employee_id": e.employee_id,
+                     "avatar_url": e.avatar_url}
+                    for e in emps
+                ]
+            })
+        return result
+    finally:
+        db.close()
+
+
+# Performance Reviews
+@app.get("/api/performance/", response_model=List[ReviewOut])
+def get_reviews(employee_id: Optional[int] = None, status: Optional[str] = None):
+    db = SessionLocal()
+    try:
+        q = db.query(PerformanceReview)
+        if employee_id: q = q.filter(PerformanceReview.employee_id == employee_id)
+        if status: q = q.filter(PerformanceReview.status == status)
+        return q.order_by(PerformanceReview.created_at.desc()).all()
+    finally: db.close()
+
+@app.post("/api/performance/", response_model=ReviewOut, status_code=201)
+def create_review(r: ReviewCreate):
+    db = SessionLocal()
+    try:
+        obj = PerformanceReview(**r.dict()); db.add(obj); db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.put("/api/performance/{rid}", response_model=ReviewOut)
+def update_review(rid: int, r: ReviewUpdate):
+    db = SessionLocal()
+    try:
+        obj = db.query(PerformanceReview).filter(PerformanceReview.id == rid).first()
+        if not obj: raise HTTPException(404, "Not found")
+        for k, v in r.dict(exclude_unset=True).items(): setattr(obj, k, v)
+        db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.delete("/api/performance/{rid}")
+def delete_review(rid: int):
+    db = SessionLocal()
+    try:
+        obj = db.query(PerformanceReview).filter(PerformanceReview.id == rid).first()
+        if not obj: raise HTTPException(404, "Not found")
+        db.delete(obj); db.commit(); return {"message": "Deleted"}
+    finally: db.close()
+
+
+# Documents
+@app.get("/api/documents/", response_model=List[DocOut])
+def get_documents(employee_id: Optional[int] = None, doc_type: Optional[str] = None):
+    db = SessionLocal()
+    try:
+        q = db.query(EmployeeDocument)
+        if employee_id: q = q.filter(EmployeeDocument.employee_id == employee_id)
+        if doc_type: q = q.filter(EmployeeDocument.doc_type == doc_type)
+        return q.order_by(EmployeeDocument.created_at.desc()).all()
+    finally: db.close()
+
+@app.post("/api/documents/", response_model=DocOut, status_code=201)
+def create_document(doc: DocCreate):
+    db = SessionLocal()
+    try:
+        obj = EmployeeDocument(**doc.dict()); db.add(obj); db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.put("/api/documents/{did}", response_model=DocOut)
+def update_document(did: int, doc: DocUpdate):
+    db = SessionLocal()
+    try:
+        obj = db.query(EmployeeDocument).filter(EmployeeDocument.id == did).first()
+        if not obj: raise HTTPException(404, "Not found")
+        for k, v in doc.dict(exclude_unset=True).items(): setattr(obj, k, v)
+        db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.delete("/api/documents/{did}")
+def delete_document(did: int):
+    db = SessionLocal()
+    try:
+        obj = db.query(EmployeeDocument).filter(EmployeeDocument.id == did).first()
+        if not obj: raise HTTPException(404, "Not found")
+        db.delete(obj); db.commit(); return {"message": "Deleted"}
+    finally: db.close()
+
+
+# Leave Balances
+@app.get("/api/leave-balances/", response_model=List[BalanceOut])
+def get_leave_balances(employee_id: Optional[int] = None, year: Optional[int] = None):
+    db = SessionLocal()
+    try:
+        q = db.query(LeaveBalance)
+        if employee_id: q = q.filter(LeaveBalance.employee_id == employee_id)
+        if year: q = q.filter(LeaveBalance.year == year)
+        return q.all()
+    finally: db.close()
+
+@app.post("/api/leave-balances/", response_model=BalanceOut, status_code=201)
+def create_leave_balance(b: BalanceCreate):
+    db = SessionLocal()
+    try:
+        existing = db.query(LeaveBalance).filter(
+            LeaveBalance.employee_id == b.employee_id, LeaveBalance.year == b.year
+        ).first()
+        if existing: raise HTTPException(400, "Balance already exists for this year")
+        obj = LeaveBalance(**b.dict()); db.add(obj); db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.put("/api/leave-balances/{bid}", response_model=BalanceOut)
+def update_leave_balance(bid: int, b: BalanceUpdate):
+    db = SessionLocal()
+    try:
+        obj = db.query(LeaveBalance).filter(LeaveBalance.id == bid).first()
+        if not obj: raise HTTPException(404, "Not found")
+        for k, v in b.dict(exclude_unset=True).items(): setattr(obj, k, v)
+        db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.post("/api/leave-balances/init/{year}")
+def init_leave_balances(year: int):
+    """Auto-create leave balances for all active employees for a given year."""
+    db = SessionLocal()
+    try:
+        employees = db.query(Employee).filter(Employee.status == "active").all()
+        created = skipped = 0
+        for emp in employees:
+            if db.query(LeaveBalance).filter(
+                LeaveBalance.employee_id == emp.id, LeaveBalance.year == year
+            ).first():
+                skipped += 1; continue
+            db.add(LeaveBalance(employee_id=emp.id, year=year))
+            created += 1
+        db.commit()
+        return {"message": f"Initialized: {created} created, {skipped} skipped"}
+    finally: db.close()
+
+
+# Benefits
+@app.get("/api/benefits/", response_model=List[BenefitOut])
+def get_benefits(employee_id: Optional[int] = None, status: Optional[str] = None):
+    db = SessionLocal()
+    try:
+        q = db.query(Benefit)
+        if employee_id: q = q.filter(Benefit.employee_id == employee_id)
+        if status: q = q.filter(Benefit.status == status)
+        return q.order_by(Benefit.created_at.desc()).all()
+    finally: db.close()
+
+@app.post("/api/benefits/", response_model=BenefitOut, status_code=201)
+def create_benefit(b: BenefitCreate):
+    db = SessionLocal()
+    try:
+        obj = Benefit(**b.dict()); db.add(obj); db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.put("/api/benefits/{bid}", response_model=BenefitOut)
+def update_benefit(bid: int, b: BenefitUpdate):
+    db = SessionLocal()
+    try:
+        obj = db.query(Benefit).filter(Benefit.id == bid).first()
+        if not obj: raise HTTPException(404, "Not found")
+        for k, v in b.dict(exclude_unset=True).items(): setattr(obj, k, v)
+        db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.delete("/api/benefits/{bid}")
+def delete_benefit(bid: int):
+    db = SessionLocal()
+    try:
+        obj = db.query(Benefit).filter(Benefit.id == bid).first()
+        if not obj: raise HTTPException(404, "Not found")
+        db.delete(obj); db.commit(); return {"message": "Deleted"}
+    finally: db.close()
+
+
+# Announcements
+@app.get("/api/announcements/", response_model=List[AnnounceOut])
+def get_announcements(priority: Optional[str] = None, category: Optional[str] = None):
+    db = SessionLocal()
+    try:
+        q = db.query(Announcement)
+        if priority: q = q.filter(Announcement.priority == priority)
+        if category: q = q.filter(Announcement.category == category)
+        return q.order_by(Announcement.created_at.desc()).all()
+    finally: db.close()
+
+@app.post("/api/announcements/", response_model=AnnounceOut, status_code=201)
+def create_announcement(a: AnnounceCreate):
+    db = SessionLocal()
+    try:
+        obj = Announcement(**a.dict()); db.add(obj); db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.put("/api/announcements/{aid}", response_model=AnnounceOut)
+def update_announcement(aid: int, a: AnnounceUpdate):
+    db = SessionLocal()
+    try:
+        obj = db.query(Announcement).filter(Announcement.id == aid).first()
+        if not obj: raise HTTPException(404, "Not found")
+        for k, v in a.dict(exclude_unset=True).items(): setattr(obj, k, v)
+        db.commit(); db.refresh(obj); return obj
+    finally: db.close()
+
+@app.delete("/api/announcements/{aid}")
+def delete_announcement(aid: int):
+    db = SessionLocal()
+    try:
+        obj = db.query(Announcement).filter(Announcement.id == aid).first()
+        if not obj: raise HTTPException(404, "Not found")
+        db.delete(obj); db.commit(); return {"message": "Deleted"}
+    finally: db.close()
+
+
+# Seed new tables
+def seed_extended():
+    db = SessionLocal()
+    try:
+        if db.query(Announcement).count() > 0:
+            return
+        today = date.today()
+        # Announcements
+        db.add(Announcement(title="Welcome to HR Pro!", content="We've upgraded our HR system with powerful new features. Explore Analytics, Org Chart, Documents, Performance Reviews, and more!", priority="high", category="general", author="HR Team"))
+        db.add(Announcement(title="Q1 Performance Reviews Due", content="All managers must complete Q1 performance reviews by end of this month. Log in to the Performance section to get started.", priority="urgent", category="policy", author="Management"))
+        db.add(Announcement(title="Health Insurance Renewal", content="Annual health insurance renewals are due. Please review your benefits in the Benefits section and confirm coverage details.", priority="normal", category="event", author="Benefits Team"))
+        db.add(Announcement(title="Office Closed on Public Holiday", content="The office will be closed next Monday for the national holiday. Attendance will be marked automatically.", priority="low", category="alert", author="HR Team"))
+        db.commit()
+
+        # Leave Balances for current year
+        year = today.year
+        for emp_id in [1, 2, 3, 4, 5]:
+            if db.query(LeaveBalance).filter(LeaveBalance.employee_id == emp_id, LeaveBalance.year == year).first():
+                continue
+            used = [2.0, 0.0, 1.0, 5.0, 3.0][emp_id - 1]
+            sick_used = [1.0, 0.0, 2.0, 0.0, 3.0][emp_id - 1]
+            db.add(LeaveBalance(employee_id=emp_id, year=year,
+                annual_total=21, annual_used=used,
+                sick_total=10, sick_used=sick_used,
+                emergency_total=5, emergency_used=0))
+        db.commit()
+
+        # Benefits
+        benefit_data = [
+            (1, "Health Insurance", "AXA Insurance", "Full medical + dental", today.replace(day=1), 450.0),
+            (2, "Health Insurance", "AXA Insurance", "Full medical + dental", today.replace(day=1), 450.0),
+            (3, "Life Insurance", "MetLife", "$500,000 coverage", today.replace(day=1), 120.0),
+            (4, "Health Insurance", "Daman", "Basic medical", today.replace(day=1), 300.0),
+            (5, "Health Insurance", "Daman", "Basic medical", today.replace(day=1), 300.0),
+            (1, "Life Insurance", "MetLife", "$500,000 coverage", today.replace(day=1), 120.0),
+        ]
+        for emp_id, btype, provider, coverage, start, cost in benefit_data:
+            db.add(Benefit(employee_id=emp_id, benefit_type=btype, provider=provider,
+                coverage_details=coverage, start_date=start, cost_monthly=cost, status="active"))
+        db.commit()
+
+        # Performance Reviews
+        from datetime import timedelta
+        reviews = [
+            (1, "Q4 2024", today - timedelta(days=30), 4.5, "Deliver new API features", "Completed 3 major APIs on time", "Communication", "Excellent work this quarter", "completed"),
+            (2, "Q4 2024", today - timedelta(days=28), 4.0, "Recruit 5 new developers", "Hired 4 developers", "Speed of hiring", "Good performance overall", "completed"),
+            (3, "Q4 2024", today - timedelta(days=25), 3.8, "Close quarterly books", "Books closed 2 days early", "Excel skills", "Meeting expectations", "completed"),
+            (4, "Q1 2025", today, 0.0, "Launch new campaign", None, None, None, "pending"),
+            (5, "Q1 2025", today, 0.0, "Learn React framework", None, None, None, "pending"),
+        ]
+        for emp_id, period, rdate, rating, goals, achieve, areas, notes, status in reviews:
+            db.add(PerformanceReview(employee_id=emp_id, period=period, review_date=rdate,
+                rating=rating, goals=goals, achievements=achieve,
+                areas_improvement=areas, reviewer_notes=notes, status=status))
+        db.commit()
+
+        # Documents
+        doc_data = [
+            (1, "passport", "Alice Johnson - Passport", today.replace(year=today.year + 5)),
+            (1, "contract", "Alice Johnson - Employment Contract", None),
+            (2, "passport", "Bob Smith - Passport", today.replace(year=today.year + 3)),
+            (2, "visa", "Bob Smith - Work Visa", today + timedelta(days=60)),
+            (3, "contract", "Carol Williams - Employment Contract", None),
+            (4, "passport", "David Brown - Passport", today.replace(year=today.year + 2)),
+            (5, "certificate", "Eve Davis - React Certification", today.replace(year=today.year + 2)),
+        ]
+        for emp_id, dtype, name, expiry in doc_data:
+            db.add(EmployeeDocument(employee_id=emp_id, doc_type=dtype, name=name, expiry_date=expiry))
+        db.commit()
+
+        print("✅ Extended seed data created!")
+    except Exception as e:
+        db.rollback()
+        print(f"Extended seed error: {e}")
+    finally:
+        db.close()
+
+
+seed_extended()
