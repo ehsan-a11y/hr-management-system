@@ -55,6 +55,7 @@ class Employee(Base):
     salary = Column(Float, nullable=False)
     status = Column(String(20), default="active")
     address = Column(Text, nullable=True)
+    avatar_url = Column(Text, nullable=True)   # stores base64 data-URL
     created_at = Column(DateTime, server_default=func.now())
     department = relationship("Department", back_populates="employees")
     attendance = relationship("Attendance", back_populates="employee")
@@ -121,19 +122,22 @@ class EmpOut(BaseModel):
     id: int; employee_id: str; first_name: str; last_name: str; email: str
     phone: Optional[str] = None; position: str; department_id: Optional[int] = None
     hire_date: date; salary: float; status: Optional[str] = "active"
-    address: Optional[str] = None; created_at: Optional[datetime] = None
+    address: Optional[str] = None; avatar_url: Optional[str] = None
+    created_at: Optional[datetime] = None
     department: Optional[DeptOut] = None
     class Config: from_attributes = True
 
 class EmpCreate(BaseModel):
     employee_id: str; first_name: str; last_name: str; email: str
     phone: Optional[str] = None; position: str; department_id: Optional[int] = None
-    hire_date: date; salary: float; status: Optional[str] = "active"; address: Optional[str] = None
+    hire_date: date; salary: float; status: Optional[str] = "active"
+    address: Optional[str] = None; avatar_url: Optional[str] = None
 
 class EmpUpdate(BaseModel):
     first_name: Optional[str] = None; last_name: Optional[str] = None; email: Optional[str] = None
     phone: Optional[str] = None; position: Optional[str] = None; department_id: Optional[int] = None
     salary: Optional[float] = None; status: Optional[str] = None; address: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 class AttOut(BaseModel):
     id: int; employee_id: int; date: date; check_in: Optional[str] = None

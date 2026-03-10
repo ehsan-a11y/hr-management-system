@@ -3,7 +3,9 @@
  * Pure vanilla JS, communicates with FastAPI backend
  */
 
-const API = "http://localhost:8000";
+const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ? "http://localhost:8000"
+  : "/api";
 
 // ─── Utilities ──────────────────────────────────────────────────────────────
 
@@ -61,6 +63,38 @@ function loading(id) {
     <div class="loading"><div class="spinner"></div> Loading...</div>`;
 }
 
+/** Compress & convert a File to a base64 data-URL (max 200×200 px) */
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 200;
+        let w = img.width, h = img.height;
+        if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
+        else        { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Render avatar: real photo if available, else initials circle */
+function avatarEl(emp) {
+  if (emp.avatar_url) {
+    return `<img src="${emp.avatar_url}" class="emp-avatar" style="object-fit:cover;padding:0" alt="${emp.first_name}">`;
+  }
+  return `<div class="emp-avatar" style="background:${avatarColor(emp.id)}">${initials(emp.first_name, emp.last_name)}</div>`;
+}
+
 function emptyState(id, icon, msg) {
   document.getElementById(id).innerHTML = `
     <div class="empty-state"><div class="icon">${icon}</div><p>${msg}</p></div>`;
@@ -114,7 +148,7 @@ async function loadDashboard() {
     tbody.innerHTML = employees.map((e) => `
       <tr>
         <td><div class="emp-info">
-          <div class="emp-avatar">${initials(e.first_name, e.last_name)}</div>
+          ${avatarEl(e)}
           <div><div class="name">${e.first_name} ${e.last_name}</div>
           <div class="email">${e.email}</div></div>
         </div></td>
@@ -169,7 +203,7 @@ function renderEmployeesTable(data) {
   tbody.innerHTML = data.map((e) => `
     <tr>
       <td><div class="emp-info">
-        <div class="emp-avatar" style="background:${avatarColor(e.id)}">${initials(e.first_name, e.last_name)}</div>
+        ${avatarEl(e)}
         <div><div class="name">${e.first_name} ${e.last_name}</div>
         <div class="email">${e.employee_id}</div></div>
       </div></td>
@@ -276,8 +310,50 @@ async function openAddEmployee() {
         <label class="form-label">Address</label>
         <input class="form-control" id="f-address" placeholder="123 Main St">
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Profile Picture</label>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:4px">
+        <div id="avatar-preview" style="
+          width:72px;height:72px;border-radius:50%;border:2px dashed var(--border);
+          background:var(--bg);display:flex;align-items:center;justify-content:center;
+          overflow:hidden;font-size:26px;flex-shrink:0">📷</div>
+        <div style="flex:1">
+          <label for="f-photo" class="btn btn-outline" style="cursor:pointer;display:inline-flex">
+            📂 Choose Photo
+          </label>
+          <input type="file" id="f-photo" accept="image/*"
+            style="display:none" onchange="previewAvatar(this)">
+          <p class="text-sm text-muted" style="margin-top:5px">
+            JPG, PNG, GIF · auto-resized to 200×200
+          </p>
+          <button type="button" class="btn btn-outline btn-sm" id="f-photo-clear"
+            style="display:none;margin-top:4px" onclick="clearAvatar()">✕ Remove</button>
+        </div>
+      </div>
+      <input type="hidden" id="f-avatar-data" value="">
     </div>`;
   openModal("modal-save-btn", saveEmployee);
+}
+
+async function previewAvatar(input) {
+  if (!input.files?.[0]) return;
+  try {
+    const dataUrl = await compressImage(input.files[0]);
+    const preview = document.getElementById("avatar-preview");
+    preview.innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover">`;
+    document.getElementById("f-avatar-data").value = dataUrl;
+    document.getElementById("f-photo-clear").style.display = "inline-flex";
+  } catch {
+    toast("Could not load image", "error");
+  }
+}
+
+function clearAvatar() {
+  document.getElementById("avatar-preview").innerHTML = "📷";
+  document.getElementById("f-avatar-data").value = "";
+  document.getElementById("f-photo").value = "";
+  document.getElementById("f-photo-clear").style.display = "none";
 }
 
 async function openEditEmployee(id) {
@@ -297,6 +373,13 @@ async function openEditEmployee(id) {
   document.getElementById("f-salary").value = emp.salary;
   document.getElementById("f-address").value = emp.address || "";
   document.getElementById("f-status").value = emp.status;
+  // Restore existing photo
+  if (emp.avatar_url) {
+    const preview = document.getElementById("avatar-preview");
+    preview.innerHTML = `<img src="${emp.avatar_url}" style="width:100%;height:100%;object-fit:cover">`;
+    document.getElementById("f-avatar-data").value = emp.avatar_url;
+    document.getElementById("f-photo-clear").style.display = "inline-flex";
+  }
 }
 
 async function saveEmployee() {
@@ -313,6 +396,7 @@ async function saveEmployee() {
     salary: parseFloat(document.getElementById("f-salary").value),
     address: document.getElementById("f-address").value.trim() || null,
     status: document.getElementById("f-status").value,
+    avatar_url: document.getElementById("f-avatar-data")?.value || null,
   };
 
   if (!body.first_name || !body.email || !body.hire_date || !body.position || !body.salary) {
