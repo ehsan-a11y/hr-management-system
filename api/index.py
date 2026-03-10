@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.orm import sessionmaker, Session, relationship, joinedload
 from sqlalchemy.sql import func
 from pydantic import BaseModel
 from typing import Optional, List
@@ -330,7 +330,7 @@ def delete_department(dept_id: int):
 def get_employees(search: Optional[str] = None, department_id: Optional[int] = None, status: Optional[str] = None):
     db = SessionLocal()
     try:
-        q = db.query(Employee)
+        q = db.query(Employee).options(joinedload(Employee.department))
         if search:
             q = q.filter(
                 (Employee.first_name.ilike(f"%{search}%")) |
@@ -340,16 +340,17 @@ def get_employees(search: Optional[str] = None, department_id: Optional[int] = N
             )
         if department_id: q = q.filter(Employee.department_id == department_id)
         if status: q = q.filter(Employee.status == status)
-        return q.all()
+        result = q.all()
+        return [EmpOut.model_validate(e) for e in result]
     finally: db.close()
 
 @app.get("/api/employees/{emp_id}", response_model=EmpOut)
 def get_employee(emp_id: int):
     db = SessionLocal()
     try:
-        obj = db.query(Employee).filter(Employee.id == emp_id).first()
+        obj = db.query(Employee).options(joinedload(Employee.department)).filter(Employee.id == emp_id).first()
         if not obj: raise HTTPException(404, "Not found")
-        return obj
+        return EmpOut.model_validate(obj)
     finally: db.close()
 
 @app.post("/api/employees/", response_model=EmpOut, status_code=201)
@@ -360,7 +361,9 @@ def create_employee(emp: EmpCreate):
             raise HTTPException(400, "Email already registered")
         if db.query(Employee).filter(Employee.employee_id == emp.employee_id).first():
             raise HTTPException(400, "Employee ID already exists")
-        obj = Employee(**emp.dict()); db.add(obj); db.commit(); db.refresh(obj); return obj
+        obj = Employee(**emp.dict()); db.add(obj); db.commit()
+        obj = db.query(Employee).options(joinedload(Employee.department)).filter(Employee.id == obj.id).first()
+        return EmpOut.model_validate(obj)
     finally: db.close()
 
 @app.put("/api/employees/{emp_id}", response_model=EmpOut)
@@ -370,7 +373,9 @@ def update_employee(emp_id: int, emp: EmpUpdate):
         obj = db.query(Employee).filter(Employee.id == emp_id).first()
         if not obj: raise HTTPException(404, "Not found")
         for k, v in emp.dict(exclude_unset=True).items(): setattr(obj, k, v)
-        db.commit(); db.refresh(obj); return obj
+        db.commit()
+        obj = db.query(Employee).options(joinedload(Employee.department)).filter(Employee.id == emp_id).first()
+        return EmpOut.model_validate(obj)
     finally: db.close()
 
 @app.delete("/api/employees/{emp_id}")
